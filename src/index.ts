@@ -22,6 +22,11 @@ import customerRoutes from './routes/customer.routes';
 
 dotenv.config();
 
+// Fail-fast: tolak jalan tanpa JWT_SECRET agar tidak pernah memakai secret default.
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim() === '') {
+  throw new Error('JWT_SECRET tidak di-set. Isi JWT_SECRET di environment sebelum menjalankan server.');
+}
+
 const app: Express = express();
 const port = process.env.PORT;
 

@@ -1,7 +1,5 @@
 import { prisma } from '../src/lib/prisma';
-import crypto from 'crypto';
-
-const hashPin = (pin: string) => crypto.createHash('sha256').update(pin).digest('hex');
+import { hashPin } from '../src/utils/auth';
 
 async function main() {
   console.log('🌱 Memulai proses seeding database...');
@@ -9,19 +7,25 @@ async function main() {
   // ============================================================
   // 1. USER OWNER DEFAULT
   // ============================================================
+  // PIN owner bisa diatur lewat env SEED_OWNER_PIN. Default '123456' hanya untuk
+  // development — WAJIB diganti di produksi (atau set SEED_OWNER_PIN saat seeding).
+  const ownerPin = process.env.SEED_OWNER_PIN || '123456';
   const owner = await prisma.user.upsert({
     where: { username: 'admin' },
     update: {},
     create: {
       username: 'admin',
       name: 'Pemilik Toko',
-      pinHash: hashPin('123456'),
+      pinHash: hashPin(ownerPin),
       role: 'owner',
       permissions: ['ALL'],
       isActive: true,
     },
   });
-  console.log(`👤 User owner: ${owner.username} (PIN: 123456)`);
+  console.log(`👤 User owner: ${owner.username}`);
+  if (!process.env.SEED_OWNER_PIN) {
+    console.warn('⚠️  PIN owner default (123456) dipakai. Ganti PIN ini setelah login pertama!');
+  }
 
   // ============================================================
   // 2. STORE SETTING DEFAULT

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
-import { hashPin, generateToken } from '../utils/auth';
+import { hashPin, verifyPin, isLegacyPinHash, generateToken } from '../utils/auth';
 
 const router = Router();
 
@@ -24,11 +24,18 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Validasi PIN
-    const inputPinHash = hashPin(pin);
-    if (user.pinHash !== inputPinHash) {
+    // Validasi PIN (scrypt bersalt; tetap mendukung hash lama SHA-256)
+    if (!verifyPin(String(pin), user.pinHash)) {
       res.status(401).json({ success: false, message: 'PIN salah!' });
       return;
+    }
+
+    // Upgrade transparan: hash lama (SHA-256 tanpa salt) diganti ke scrypt saat login sukses
+    if (isLegacyPinHash(user.pinHash)) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { pinHash: hashPin(String(pin)) },
+      });
     }
 
     // Update waktu login terakhir

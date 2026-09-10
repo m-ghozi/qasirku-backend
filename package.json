@@ -11,7 +11,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:seed-expense": "tsx prisma/seed-expense-categories.ts",
-    "test:db:push": "DATABASE_URL=mysql://root:root123@localhost:3306/kasir_test prisma db push",
+    "test:db:push": "NODE_ENV=test prisma db push",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run test/unit",

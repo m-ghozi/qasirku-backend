@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { transactionService } from '../services/transaction.service';
+import { isPositiveInteger } from '../middlewares/validate.middleware';
 
 export const transactionController = {
   getAll: async (req: Request, res: Response): Promise<void> => {
@@ -41,6 +42,15 @@ export const transactionController = {
       if (!req.body.items || req.body.items.length === 0) {
         res.status(400).json({ success: false, message: 'Keranjang belanja kosong!' });
         return;
+      }
+
+      // Kuantitas tiap item wajib bilangan bulat > 0. Tanpa ini, quantity negatif
+      // lolos validasi stok & membuat decrement stok justru menambah stok.
+      for (const item of req.body.items) {
+        if (!isPositiveInteger(item?.quantity)) {
+          res.status(400).json({ success: false, message: 'Jumlah item harus bilangan bulat lebih dari 0' });
+          return;
+        }
       }
 
       const newTransaction = await transactionService.createTransaction(req.body, userId);

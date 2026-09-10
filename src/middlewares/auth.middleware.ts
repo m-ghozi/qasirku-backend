@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { getJwtSecret } from '../utils/auth';
 
 // Memperluas tipe data bawaan Express agar mengenali 'req.user'
 declare global {
@@ -23,15 +24,18 @@ export const verifyToken = (req: Request, res: Response, next: NextFunction): vo
   // 3. Ekstrak token (membuang kata "Bearer ")
   const token = authHeader.split(' ')[1];
 
+  // 4. Ambil Secret Key dari .env. Sengaja dilakukan di luar try/catch:
+  //    JWT_SECRET yang hilang adalah miskonfigurasi server (500), bukan kegagalan auth user.
+  const secret = getJwtSecret();
+
   try {
-    // 4. Verifikasi keaslian token menggunakan Secret Key di .env
-    const secret = process.env.JWT_SECRET || 'kasir_gratisan_super_rahasia_2026';
+    // 5. Verifikasi keaslian token
     const decoded = jwt.verify(token, secret);
 
-    // 5. Jika valid, simpan data user (id, role, dll) ke dalam 'req.user'
+    // 6. Jika valid, simpan data user (id, role, dll) ke dalam 'req.user'
     req.user = decoded;
 
-    // 6. Izinkan request masuk ke Controller (tahap selanjutnya)
+    // 7. Izinkan request masuk ke Controller (tahap selanjutnya)
     next();
   } catch (error) {
     // Token kedaluwarsa / tanda tangan tidak valid = kegagalan autentikasi → 401

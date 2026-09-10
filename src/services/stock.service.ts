@@ -27,14 +27,25 @@ export const stockService = {
   },
 
   createStockIn: async (data: any, userId: number) => {
+    const quantity = Number(data.quantity);
+    const buyPrice = Number(data.buyPrice);
+
+    // Pertahanan berlapis: tolak kuantitas/harga tidak valid sebelum menyentuh DB.
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error('Jumlah stok masuk harus bilangan bulat lebih dari 0');
+    }
+    if (!Number.isFinite(buyPrice) || buyPrice < 0) {
+      throw new Error('Harga beli tidak boleh negatif');
+    }
+
     const stockIn = await prisma.$transaction(async (tx) => {
       const record = await tx.stockIn.create({
         data: {
           productId: data.productId,
           supplierId: data.supplierId || null,
-          quantity: data.quantity,
-          buyPrice: data.buyPrice,
-          totalPrice: data.quantity * data.buyPrice,
+          quantity,
+          buyPrice,
+          totalPrice: quantity * buyPrice,
           expireDate: data.expireDate ? new Date(data.expireDate) : null,
           notes: data.notes,
           createdById: userId,
@@ -43,7 +54,7 @@ export const stockService = {
 
       await tx.product.update({
         where: { id: data.productId },
-        data: { stock: { increment: data.quantity } },
+        data: { stock: { increment: quantity } },
       });
 
       return record;
@@ -51,8 +62,8 @@ export const stockService = {
 
     await hppHistoryService.recalculateHpp(
       data.productId,
-      data.quantity,
-      data.buyPrice,
+      quantity,
+      buyPrice,
       userId
     );
 
@@ -95,16 +106,21 @@ export const stockService = {
   },
 
   createStockOut: async (data: any, userId: number) => {
+    const quantity = Number(data.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error('Jumlah stok keluar harus bilangan bulat lebih dari 0');
+    }
+
     return await prisma.$transaction(async (tx) => {
       const product = await tx.product.findUnique({ where: { id: data.productId } });
-      if (!product || product.stock < data.quantity) {
+      if (!product || product.stock < quantity) {
         throw new Error(`Stok tidak mencukupi! Stok saat ini hanya ${product?.stock || 0}`);
       }
 
       const stockOut = await tx.stockOut.create({
         data: {
           productId: data.productId,
-          quantity: data.quantity,
+          quantity,
           reason: data.reason,
           notes: data.notes,
           createdById: userId,
@@ -113,7 +129,7 @@ export const stockService = {
 
       await tx.product.update({
         where: { id: data.productId },
-        data: { stock: { decrement: data.quantity } },
+        data: { stock: { decrement: quantity } },
       });
 
       return stockOut;
