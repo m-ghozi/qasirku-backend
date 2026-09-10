@@ -97,6 +97,12 @@ export const transactionService = {
       const calculatedItems: CalculatedItem[] = data.items.map((item: any) => {
         const product = productMap.get(Number(item.productId))!;
         const qty = Number(item.quantity);
+        // Kuantitas wajib bilangan bulat > 0. Nilai negatif akan melewati cek stok
+        // (stok < qty) dan membuat decrement justru menambah stok, sekaligus
+        // menghasilkan total transaksi negatif.
+        if (!Number.isInteger(qty) || qty <= 0) {
+          throw new Error(`Jumlah item "${product.name}" harus bilangan bulat lebih dari 0`);
+        }
         const price = Number(product.price);
         const hpp = Number(product.hpp);
 

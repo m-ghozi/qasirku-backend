@@ -41,7 +41,7 @@ export const userService = {
       data: {
         username: data.username.toLowerCase(),
         name: data.name,
-        pinHash: hashPin(data.pin), // PIN langsung di-enkripsi
+        pinHash: hashPin(String(data.pin)), // PIN langsung di-hash (scrypt + salt)
         role: data.role || 'staff',
         permissions: data.permissions || [],
         isActive: data.isActive !== undefined ? data.isActive : true
@@ -62,7 +62,7 @@ export const userService = {
 
     // Jika admin mengisi kolom PIN baru, enkripsi PIN tersebut
     if (data.pin && data.pin.trim() !== '') {
-      updateData.pinHash = hashPin(data.pin);
+      updateData.pinHash = hashPin(String(data.pin));
     }
 
     return await prisma.user.update({

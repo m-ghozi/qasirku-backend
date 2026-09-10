@@ -1,6 +1,8 @@
 dist/
 node_modules/
 .env*
+# File contoh harus ikut ter-commit sebagai template untuk tim
+!.env.example
 .vscode
 .antigravitycli
 .postman

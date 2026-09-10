@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { stockService } from '../services/stock.service';
+import { isPositiveInteger, isNonNegativeNumber } from '../middlewares/validate.middleware';
 
 // Helper: parse ?from query param
 function parseFromDate(from?: string): Date | undefined {
@@ -38,6 +39,16 @@ export const stockController = {
         return;
       }
 
+      if (!isPositiveInteger(quantity)) {
+        res.status(400).json({ success: false, message: 'Jumlah stok masuk harus bilangan bulat lebih dari 0' });
+        return;
+      }
+
+      if (!isNonNegativeNumber(buyPrice)) {
+        res.status(400).json({ success: false, message: 'Harga beli tidak boleh negatif' });
+        return;
+      }
+
       const newStockIn = await stockService.createStockIn(req.body, userId);
       res.status(201).json({
         success: true,
@@ -68,6 +79,11 @@ export const stockController = {
 
       if (!productId || !quantity || !reason) {
         res.status(400).json({ success: false, message: 'Produk, Jumlah, dan Alasan wajib diisi!' });
+        return;
+      }
+
+      if (!isPositiveInteger(quantity)) {
+        res.status(400).json({ success: false, message: 'Jumlah stok keluar harus bilangan bulat lebih dari 0' });
         return;
       }
 

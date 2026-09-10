@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 
-function isNonNegativeNumber(value: any): boolean {
+export function isNonNegativeNumber(value: any): boolean {
     const n = Number(value);
     return !isNaN(n) && n >= 0;
 }
@@ -9,6 +9,13 @@ function isNonNegativeInteger(value: any): boolean {
     const n = Number(value);
     return !isNaN(n) && Number.isInteger(n) && n >= 0;
 }
+
+// Kuantitas stok/keranjang harus bilangan bulat > 0.
+// Nilai negatif pernah lolos dan bisa menaikkan stok lewat decrement negatif.
+export const isPositiveInteger = (value: any): boolean => {
+    const n = Number(value);
+    return Number.isInteger(n) && n > 0;
+};
 
 export const validateProduct = (req: Request, res: Response, next: NextFunction) => {
     const { price, hpp, stock } = req.body;
