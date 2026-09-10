@@ -231,7 +231,16 @@ export const transactionService = {
 
       return {
         ...transaction,
-        items: calculatedItems,
+        // Sertakan relasi product (name & sku) agar bentuk response sama dengan
+        // getById/getAllTransactions. Tanpa ini klien hanya menerima productId
+        // dan menampilkan "Produk #<id>" di struk Kasir.
+        items: calculatedItems.map((item) => {
+          const product = productMap.get(item.productId)!;
+          return {
+            ...item,
+            product: { id: product.id, name: product.name, sku: product.sku },
+          };
+        }),
       };
     });
   },

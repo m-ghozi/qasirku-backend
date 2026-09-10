@@ -21,7 +21,7 @@ import { transactionService } from '../../src/services/transaction.service';
 const { tx } = mocks;
 
 // Produk default: harga 10000, hpp 6000, stok 5
-const KOPI = { id: 1, name: 'Kopi', price: 10000, hpp: 6000, stock: 5, isDeleted: false };
+const KOPI = { id: 1, name: 'Kopi', sku: 'KOPI-01', price: 10000, hpp: 6000, stock: 5, isDeleted: false };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -105,6 +105,17 @@ describe('createTransaction — kalkulasi (happy path completed)', () => {
 
     expect(result.items[0].totalPrice).toBe(20000);
     expect(result.items[0].profit).toBe(8000);
+  });
+
+  it('item yang dikembalikan menyertakan relasi product (name & sku)', async () => {
+    // Response create harus sekaya getById — klien memakai product.name untuk
+    // nama produk di struk; tanpa ini jatuh ke "Produk #<id>".
+    const result = await transactionService.createTransaction(
+      { items: [{ productId: 1, quantity: 1 }], paymentAmount: 10000, status: 'completed' },
+      1
+    );
+
+    expect(result.items[0].product).toEqual({ id: 1, name: 'Kopi', sku: 'KOPI-01' });
   });
 
   it('diskon persentase 10% per item → totalPrice & profit benar', async () => {
