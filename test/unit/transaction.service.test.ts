@@ -5,7 +5,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 const mocks = vi.hoisted(() => ({
   tx: {
     product: { findMany: vi.fn(), update: vi.fn() },
-    transaction: { create: vi.fn() },
+    transaction: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     transactionItem: { create: vi.fn() },
   },
 }));
@@ -27,6 +27,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   tx.product.findMany.mockResolvedValue([KOPI]);
   tx.transaction.create.mockResolvedValue({ id: 99, receiptNumber: 'TX-TEST' });
+  tx.transaction.findUnique.mockResolvedValue(null); // default: transaksi tidak ada
+  tx.transaction.update.mockResolvedValue({});
   tx.transactionItem.create.mockResolvedValue({});
   tx.product.update.mockResolvedValue({});
 });
@@ -133,6 +135,59 @@ describe('createTransaction — hold bill (open)', () => {
     expect(created.status).toBe('open');
     expect(created.change).toBe(0);
     expect(created.paymentAmount).toBe(0);
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('cancelCompletedTransaction — batal transaksi selesai', () => {
+  const completedTx = {
+    id: 5,
+    status: 'completed',
+    items: [
+      { productId: 1, quantity: 2 },
+      { productId: 2, quantity: 3 },
+    ],
+  };
+
+  it('restore stok per item & tandai status cancelled dengan audit', async () => {
+    tx.transaction.findUnique.mockResolvedValue(completedTx);
+    tx.transaction.update.mockResolvedValue({ ...completedTx, status: 'cancelled' });
+
+    const result = await transactionService.cancelCompletedTransaction(5, 7, '  salah scan  ');
+
+    // Stok dikembalikan sesuai qty tiap item
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { stock: { increment: 2 } },
+    });
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 2 },
+      data: { stock: { increment: 3 } },
+    });
+
+    // Update header: status + jejak audit
+    const updateData = tx.transaction.update.mock.calls[0][0].data;
+    expect(updateData.status).toBe('cancelled');
+    expect(updateData.cancelledById).toBe(7);
+    expect(updateData.cancelReason).toBe('salah scan'); // di-trim
+    expect(updateData.cancelledAt).toBeInstanceOf(Date);
+  });
+
+  it('transaksi tidak ditemukan → throw, stok tidak disentuh', async () => {
+    tx.transaction.findUnique.mockResolvedValue(null);
+    await expect(transactionService.cancelCompletedTransaction(999, 1)).rejects.toThrow('Transaksi tidak ditemukan');
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('sudah cancelled → throw, stok tidak disentuh', async () => {
+    tx.transaction.findUnique.mockResolvedValue({ ...completedTx, status: 'cancelled' });
+    await expect(transactionService.cancelCompletedTransaction(5, 1)).rejects.toThrow('sudah dibatalkan');
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('masih open (hold bill) → throw, stok tidak disentuh', async () => {
+    tx.transaction.findUnique.mockResolvedValue({ ...completedTx, status: 'open' });
+    await expect(transactionService.cancelCompletedTransaction(5, 1)).rejects.toThrow('belum lunas');
     expect(tx.product.update).not.toHaveBeenCalled();
   });
 });

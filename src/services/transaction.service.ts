@@ -247,6 +247,7 @@ export const transactionService = {
 
       if (!transaction) throw new Error('Transaksi tidak ditemukan');
       if (transaction.status === 'completed') throw new Error('Transaksi ini sudah lunas');
+      if (transaction.status === 'cancelled') throw new Error('Transaksi sudah dibatalkan');
 
       const total = Number(transaction.total);
       const paymentAmount = Number(paymentData.paymentAmount ?? 0);
@@ -307,9 +308,51 @@ export const transactionService = {
       if (transaction.status === 'completed') {
         throw new Error('Transaksi sudah selesai, tidak bisa dibatalkan');
       }
+      if (transaction.status === 'cancelled') {
+        throw new Error('Transaksi sudah dibatalkan');
+      }
 
       // Open bill tidak memotong stok, jadi tidak perlu restore stok
       await tx.transaction.delete({ where: { id } });
+    });
+  },
+
+  // 6. Batalkan transaksi yang sudah selesai (completed) → soft-cancel + restore stok
+  //    Transaksi tetap tersimpan (status: 'cancelled') supaya laporan & audit tetap bisa dilacak.
+  cancelCompletedTransaction: async (id: number, userId: number, reason?: string) => {
+    return await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
+        where: { id },
+        include: { items: true },
+      });
+
+      if (!transaction) throw new Error('Transaksi tidak ditemukan');
+      if (transaction.status === 'cancelled') throw new Error('Transaksi sudah dibatalkan');
+      if (transaction.status !== 'completed') {
+        throw new Error('Transaksi belum lunas. Batalkan lewat menu Hold Bill.');
+      }
+
+      // Restore stok: balikkan pengurangan stok saat transaksi dibuat
+      for (const item of transaction.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { stock: { increment: item.quantity } },
+        });
+      }
+
+      // Soft-cancel: tandai status & simpan jejak audit (siapa, kapan, alasan)
+      return await tx.transaction.update({
+        where: { id },
+        data: {
+          status: 'cancelled',
+          cancelledById: userId,
+          cancelledAt: new Date(),
+          cancelReason: reason?.trim() || null,
+        },
+        include: {
+          items: { include: { product: { select: { name: true, sku: true } } } },
+        },
+      });
     });
   },
 };

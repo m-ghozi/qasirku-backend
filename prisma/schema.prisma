@@ -26,10 +26,11 @@ model User {
   lastLoginAt DateTime?
 
   // Relasi: Melacak data apa saja yang dibuat oleh User ini
-  transactions Transaction[]
-  stockIns     StockIn[]
-  stockOuts    StockOut[]
-  expenses     Expense[]
+  transactions         Transaction[] @relation("TransactionCreatedBy")
+  cancelledTransactions Transaction[] @relation("TransactionCancelledBy")
+  stockIns             StockIn[]
+  stockOuts            StockOut[]
+  expenses             Expense[]
 }
 
 model Category {
@@ -147,8 +148,12 @@ model Transaction {
   status          String   @default("completed")
   date            DateTime @default(now())
   createdById     Int
+  cancelledById   Int?      // Siapa yang membatalkan transaksi (audit)
+  cancelledAt     DateTime? // Kapan transaksi dibatalkan
+  cancelReason    String?   @db.Text // Alasan pembatalan
 
-  createdBy     User            @relation(fields: [createdById], references: [id])
+  createdBy     User            @relation("TransactionCreatedBy", fields: [createdById], references: [id])
+  cancelledBy   User?           @relation("TransactionCancelledBy", fields: [cancelledById], references: [id])
   paymentMethod PaymentMethod?  @relation(fields: [paymentMethodId], references: [id])
   items         TransactionItem[]
   customer      Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)

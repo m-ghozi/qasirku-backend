@@ -35,7 +35,7 @@ function normalizeTransaction(
     paymentAmount: Number(tx.paymentAmount),
     change: Number(tx.change),
     profit: Number(tx.profit),
-    status: tx.status as 'open' | 'completed',
+    status: tx.status as 'open' | 'completed' | 'cancelled',
     date: tx.date,
     createdById: tx.createdById,
     createdBy: tx.createdBy,

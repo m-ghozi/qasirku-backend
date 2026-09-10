@@ -101,4 +101,28 @@ export const transactionController = {
       res.status(statusCode).json({ success: false, message: error.message });
     }
   },
+
+  cancelCompleted: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const id = parseInt(req.params.id as string);
+      const userId = req.user?.userId;
+
+      if (!userId) {
+        res.status(401).json({ success: false, message: 'Sesi tidak valid' });
+        return;
+      }
+
+      const reason = req.body?.reason as string | undefined;
+      const cancelled = await transactionService.cancelCompletedTransaction(id, userId, reason);
+
+      res.json({
+        success: true,
+        message: 'Transaksi berhasil dibatalkan, stok dikembalikan',
+        data: cancelled,
+      });
+    } catch (error: any) {
+      const statusCode = error.message.includes('tidak ditemukan') ? 404 : 400;
+      res.status(statusCode).json({ success: false, message: error.message });
+    }
+  },
 };

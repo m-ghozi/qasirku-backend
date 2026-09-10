@@ -11,6 +11,7 @@ router.get('/:id', transactionController.getById);
 router.post('/', transactionController.create);
 
 router.put('/:id/pay', transactionController.payHold);
-router.delete('/:id', transactionController.cancel);
+router.post('/:id/cancel', transactionController.cancelCompleted); // Batal transaksi selesai
+router.delete('/:id', transactionController.cancel); // Batal hold bill
 
 export default router;
