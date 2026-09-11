@@ -18,8 +18,15 @@ export const isPositiveInteger = (value: any): boolean => {
 };
 
 export const validateProduct = (req: Request, res: Response, next: NextFunction) => {
-    const { price, hpp, stock } = req.body;
+    const { price, hpp, stock, supplierId } = req.body;
     const isUpdate = req.method === 'PUT' || req.method === 'PATCH';
+
+    // Supplier opsional — kalau diisi harus id yang valid.
+    if (supplierId !== undefined && supplierId !== null && supplierId !== '') {
+        if (!isPositiveInteger(supplierId)) {
+            return res.status(400).json({ message: 'Supplier tidak valid' });
+        }
+    }
 
     if (!isUpdate && (price === undefined || price === null || price === '')) {
         return res.status(400).json({ message: 'Harga jual wajib diisi' });

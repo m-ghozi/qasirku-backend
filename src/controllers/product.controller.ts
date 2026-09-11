@@ -44,6 +44,11 @@ export const productController = {
         res.status(400).json({ success: false, message: 'SKU (Kode Barang) sudah digunakan!' });
         return;
       }
+      // Supplier yang dirujuk tidak ada
+      if (error.code === 'P2003') {
+        res.status(400).json({ success: false, message: 'Supplier tidak ditemukan!' });
+        return;
+      }
       res.status(500).json({ success: false, message: error.message });
     }
   },
@@ -54,6 +59,10 @@ export const productController = {
       const updatedProduct = await productService.updateProduct(id, req.body);
       res.json({ success: true, message: 'Produk berhasil diubah', data: updatedProduct });
     } catch (error: any) {
+      if (error.code === 'P2003') {
+        res.status(400).json({ success: false, message: 'Supplier tidak ditemukan!' });
+        return;
+      }
       res.status(500).json({ success: false, message: error.message });
     }
   },
