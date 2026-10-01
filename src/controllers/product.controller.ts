@@ -1,11 +1,19 @@
 import { Request, Response } from 'express';
 import { productService } from '../services/product.service';
+import { parseOptionalId } from '../utils/pagination';
 
 export const productController = {
+  // Query: page, limit, search, categoryId. `data` tetap array supaya pemanggil
+  // lama tidak rusak; info halaman ada di `meta` di sebelahnya.
   getAll: async (req: Request, res: Response): Promise<void> => {
     try {
-      const products = await productService.getAllProducts();
-      res.json({ success: true, data: products });
+      const { items, meta } = await productService.getAllProducts({
+        page: req.query.page,
+        limit: req.query.limit,
+        search: typeof req.query.search === 'string' ? req.query.search.trim() : undefined,
+        categoryId: parseOptionalId(req.query.categoryId),
+      });
+      res.json({ success: true, data: items, meta });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }

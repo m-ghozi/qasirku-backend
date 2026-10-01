@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { startOfDay, subDays, addDays } from 'date-fns';
 import { hppHistoryService } from './hppHistory.service';
+import { buildMeta, dateRangeWhere, parsePagination } from '../utils/pagination';
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -11,19 +12,45 @@ function parsePeriod(period?: string): Date {
   return parsed && !isNaN(parsed.getTime()) ? parsed : startOfDay(subDays(new Date(), 7));
 }
 
+export interface StockListOptions {
+  from?: Date;
+  to?: Date;
+  supplierId?: number;
+  page?: unknown;
+  limit?: unknown;
+}
+
+// Catatan: parsePeriod di atas punya default "7 hari terakhir" dan HANYA dipakai
+// laporan. Daftar ber-paginasi tidak boleh mewarisi default itu — kalau from/to
+// kosong, daftar harus menampilkan semua riwayat.
 export const stockService = {
   // === STOCK IN ===
 
-  getAllStockIn: async (from?: Date) => {
-    return await prisma.stockIn.findMany({
-      where: from ? { date: { gte: from } } : undefined,
-      orderBy: { date: 'desc' },
-      include: {
-        product: { select: { name: true, sku: true } },
-        supplier: { select: { name: true } },
-        createdBy: { select: { name: true } },
-      },
-    });
+  getAllStockIn: async (opts: StockListOptions = {}) => {
+    const { page, limit, skip, take } = parsePagination(opts);
+
+    const where = {
+      ...dateRangeWhere(opts.from, opts.to),
+      ...(opts.supplierId ? { supplierId: opts.supplierId } : {}),
+    };
+
+    // id desc sebagai tiebreaker agar urutan stabil saat `date` kembar.
+    const [items, total] = await prisma.$transaction([
+      prisma.stockIn.findMany({
+        where,
+        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+        include: {
+          product: { select: { name: true, sku: true } },
+          supplier: { select: { name: true } },
+          createdBy: { select: { name: true } },
+        },
+      }),
+      prisma.stockIn.count({ where }),
+    ]);
+
+    return { items, meta: buildMeta(page, limit, total) };
   },
 
   createStockIn: async (data: any, userId: number) => {
@@ -94,15 +121,25 @@ export const stockService = {
 
   // === STOCK OUT ===
 
-  getAllStockOut: async (from?: Date) => {
-    return await prisma.stockOut.findMany({
-      where: from ? { date: { gte: from } } : undefined,
-      orderBy: { date: 'desc' },
-      include: {
-        product: { select: { name: true, sku: true, stock: true } },
-        createdBy: { select: { name: true } },
-      },
-    });
+  getAllStockOut: async (opts: StockListOptions = {}) => {
+    const { page, limit, skip, take } = parsePagination(opts);
+    const where = dateRangeWhere(opts.from, opts.to);
+
+    const [items, total] = await prisma.$transaction([
+      prisma.stockOut.findMany({
+        where,
+        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        skip,
+        take,
+        include: {
+          product: { select: { name: true, sku: true, stock: true } },
+          createdBy: { select: { name: true } },
+        },
+      }),
+      prisma.stockOut.count({ where }),
+    ]);
+
+    return { items, meta: buildMeta(page, limit, total) };
   },
 
   createStockOut: async (data: any, userId: number) => {
