@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { endOfDay, startOfDay, subDays } from 'date-fns';
-import { stockService } from '../services/stock.service';
+import { stockService, type RangeParams } from '../services/stock.service';
 import { isPositiveInteger, isNonNegativeNumber } from '../middlewares/validate.middleware';
 import { parseOptionalId } from '../utils/pagination';
 
@@ -23,6 +23,18 @@ function parseToDate(to?: string): Date | undefined {
   if (!to) return undefined;
   const parsed = new Date(to);
   return isNaN(parsed.getTime()) ? undefined : endOfDay(parsed);
+}
+
+// Helper: parameter rentang laporan.
+// Nilai mentah diteruskan apa adanya — penganalisisan (preset / from-to / period)
+// ada di `resolveRange` supaya semua arti "rentang" terkumpul di satu tempat.
+function parseRangeParams(query: Request['query']): RangeParams {
+  return {
+    range: query.range as string | undefined,
+    from: query.from as string | undefined,
+    to: query.to as string | undefined,
+    period: query.period as string | undefined,
+  };
 }
 
 export const stockController = {
@@ -117,10 +129,20 @@ export const stockController = {
 
   // === STOCK REPORT ===
 
+  // Query: range (today|7|30|month|all), from, to, atau period (lama).
   getReport: async (req: Request, res: Response): Promise<void> => {
     try {
-      const period = req.query.period as string | undefined;
-      const data = await stockService.getReport(period);
+      const data = await stockService.getReport(parseRangeParams(req.query));
+      res.json({ success: true, data });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
+  // Kartu stok per produk untuk satu rentang. Query sama dengan getReport.
+  getMovements: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const data = await stockService.getProductMovements(parseRangeParams(req.query));
       res.json({ success: true, data });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });

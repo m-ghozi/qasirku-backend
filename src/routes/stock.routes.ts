@@ -15,8 +15,9 @@ router.get('/out', stockController.getStockOut);
 router.post('/out', stockController.createStockOut);
 
 // === Report ===
-// GET /stocks/report?period=7   → laporan 7 hari terakhir
-// GET /stocks/report?period=30  → laporan 30 hari terakhir
+// Rentang bisa lewat preset (?range=today|7|30|month|all), rentang bebas
+// (?from=YYYY-MM-DD&to=YYYY-MM-DD), atau ?period=7|30 yang lama.
+router.get('/report/movements', stockController.getMovements);
 router.get('/report', stockController.getReport);
 
 export default router;
