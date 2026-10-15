@@ -1,0 +1,5 @@
+$kind: http-request
+name: Get Next SKU
+method: GET
+url: '{{baseUrl}}/api/products/next-sku?categoryId=1'
+order: 1500
