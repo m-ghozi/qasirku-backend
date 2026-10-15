@@ -19,6 +19,30 @@ export const productController = {
     }
   },
 
+  /**
+   * SKU usulan untuk form "tambah produk". Dipisah dari getById karena
+   * "next-sku" bukan id — rutenya pun harus didaftarkan lebih dulu.
+   */
+  getNextSku: async (req: Request, res: Response): Promise<void> => {
+    try {
+      const categoryId = parseOptionalId(req.query.categoryId);
+      if (!categoryId) {
+        res.status(400).json({ success: false, message: 'Kategori tidak valid' });
+        return;
+      }
+
+      const sku = await productService.getNextSku(categoryId);
+      if (!sku) {
+        res.status(404).json({ success: false, message: 'Kategori tidak ditemukan' });
+        return;
+      }
+
+      res.json({ success: true, data: { sku } });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
   getById: async (req: Request, res: Response): Promise<void> => {
     try {
       const id = parseInt(req.params.id as string);
