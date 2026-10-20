@@ -79,15 +79,35 @@ export const transactionController = {
   payHold: async (req: Request, res: Response): Promise<void> => {
     try {
       const id = parseInt(req.params.id as string);
-      const { paymentMethodId, paymentAmount, change } = req.body;
+      const { paymentMethodId, paymentAmount, items, discountType, discountValue } = req.body;
 
       if (!paymentMethodId || paymentAmount === undefined) {
         res.status(400).json({ success: false, message: 'Data pembayaran tidak lengkap' });
         return;
       }
 
+      // Keranjang final opsional: bila dikirim, service menghitung ulang harga
+      // dari DB. Validasi bentuknya di sini agar service menerima data siap olah.
+      if (items !== undefined) {
+        if (!Array.isArray(items) || items.length === 0) {
+          res.status(400).json({ success: false, message: 'Keranjang belanja kosong' });
+          return;
+        }
+        for (const item of items) {
+          if (!isPositiveInteger(item?.quantity)) {
+            res.status(400).json({ success: false, message: 'Jumlah item harus bilangan bulat lebih dari 0' });
+            return;
+          }
+        }
+      }
+
+      // `change` dari klien sengaja tidak diteruskan — backend selalu menghitungnya.
       const completedTransaction = await transactionService.payOpenBill(id, {
-        paymentMethodId, paymentAmount, change
+        paymentMethodId,
+        paymentAmount,
+        items,
+        discountType,
+        discountValue,
       });
 
       res.json({

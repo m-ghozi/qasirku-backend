@@ -4,9 +4,9 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 // vi.hoisted supaya tersedia saat factory vi.mock dievaluasi (di-hoist ke atas).
 const mocks = vi.hoisted(() => ({
   tx: {
-    product: { findMany: vi.fn(), update: vi.fn() },
+    product: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
     transaction: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
-    transactionItem: { create: vi.fn() },
+    transactionItem: { create: vi.fn(), createMany: vi.fn(), deleteMany: vi.fn() },
   },
 }));
 
@@ -26,10 +26,13 @@ const KOPI = { id: 1, name: 'Kopi', sku: 'KOPI-01', price: 10000, hpp: 6000, sto
 beforeEach(() => {
   vi.clearAllMocks();
   tx.product.findMany.mockResolvedValue([KOPI]);
+  tx.product.findUnique.mockResolvedValue(KOPI);
   tx.transaction.create.mockResolvedValue({ id: 99, receiptNumber: 'TX-TEST' });
   tx.transaction.findUnique.mockResolvedValue(null); // default: transaksi tidak ada
   tx.transaction.update.mockResolvedValue({});
   tx.transactionItem.create.mockResolvedValue({});
+  tx.transactionItem.createMany.mockResolvedValue({ count: 1 });
+  tx.transactionItem.deleteMany.mockResolvedValue({ count: 0 });
   tx.product.update.mockResolvedValue({});
 });
 
@@ -147,6 +150,123 @@ describe('createTransaction — hold bill (open)', () => {
     expect(created.change).toBe(0);
     expect(created.paymentAmount).toBe(0);
     expect(tx.product.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('payOpenBill — harga & keranjang saat pelunasan', () => {
+  const openTx = {
+    id: 10,
+    status: 'open',
+    subtotal: 20000,
+    discountType: null,
+    discountValue: 0,
+    discountAmount: 0,
+    total: 20000,
+    profit: 8000,
+    items: [{ productId: 1, quantity: 2 }],
+  };
+
+  it('menagih harga produk terkini, bukan total saat bill disimpan', async () => {
+    tx.transaction.findUnique.mockResolvedValue(openTx);
+    tx.product.findMany.mockResolvedValue([{ ...KOPI, price: 15000 }]);
+
+    await transactionService.payOpenBill(10, {
+      paymentMethodId: 1,
+      paymentAmount: 30000,
+      items: [{ productId: 1, quantity: 2 }],
+    });
+
+    const updateData = tx.transaction.update.mock.calls[0][0].data;
+    // 15000 × 2 — bukan 20000 yang tersimpan saat bill dibuat.
+    expect(updateData.total).toBe(30000);
+    expect(updateData.subtotal).toBe(30000);
+    expect(updateData.profit).toBe(18000); // (15000 - 6000) × 2
+    expect(updateData.status).toBe('completed');
+
+    expect(tx.transactionItem.deleteMany).toHaveBeenCalledWith({ where: { transactionId: 10 } });
+    const createdItems = tx.transactionItem.createMany.mock.calls[0][0].data;
+    expect(createdItems[0]).toMatchObject({
+      transactionId: 10,
+      productId: 1,
+      quantity: 2,
+      price: 15000,
+      totalPrice: 30000,
+    });
+
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { stock: { decrement: 2 } },
+    });
+  });
+
+  it('memakai qty hasil edit untuk total, item, dan stok', async () => {
+    tx.transaction.findUnique.mockResolvedValue(openTx); // tersimpan qty 2
+
+    await transactionService.payOpenBill(10, {
+      paymentMethodId: 1,
+      paymentAmount: 30000,
+      items: [{ productId: 1, quantity: 3 }],
+    });
+
+    const updateData = tx.transaction.update.mock.calls[0][0].data;
+    expect(updateData.total).toBe(30000); // 10000 × 3
+    expect(tx.transactionItem.createMany.mock.calls[0][0].data[0].quantity).toBe(3);
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { stock: { decrement: 3 } },
+    });
+  });
+
+  it('tanpa items → tetap memakai total & item tersimpan (kompatibel)', async () => {
+    tx.transaction.findUnique.mockResolvedValue(openTx);
+
+    await transactionService.payOpenBill(10, { paymentMethodId: 1, paymentAmount: 20000 });
+
+    const updateData = tx.transaction.update.mock.calls[0][0].data;
+    expect(updateData.status).toBe('completed');
+    expect(updateData.total).toBeUndefined(); // tidak dihitung ulang
+    expect(tx.transactionItem.deleteMany).not.toHaveBeenCalled();
+    expect(tx.product.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { stock: { decrement: 2 } },
+    });
+  });
+
+  it('pembayaran kurang dari total hasil hitung ulang → throw tanpa memotong stok', async () => {
+    tx.transaction.findUnique.mockResolvedValue(openTx);
+    tx.product.findMany.mockResolvedValue([{ ...KOPI, price: 15000 }]);
+
+    await expect(
+      transactionService.payOpenBill(10, {
+        paymentMethodId: 1,
+        paymentAmount: 20000, // cukup untuk total lama, kurang untuk 30000
+        items: [{ productId: 1, quantity: 2 }],
+      })
+    ).rejects.toThrow('kurang dari total');
+
+    expect(tx.transaction.update).not.toHaveBeenCalled();
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('items kosong → throw', async () => {
+    tx.transaction.findUnique.mockResolvedValue(openTx);
+
+    await expect(
+      transactionService.payOpenBill(10, { paymentMethodId: 1, paymentAmount: 20000, items: [] })
+    ).rejects.toThrow('Keranjang belanja kosong');
+  });
+
+  it('produk sudah dihapus → throw', async () => {
+    tx.transaction.findUnique.mockResolvedValue(openTx);
+    tx.product.findMany.mockResolvedValue([]);
+
+    await expect(
+      transactionService.payOpenBill(10, {
+        paymentMethodId: 1,
+        paymentAmount: 20000,
+        items: [{ productId: 1, quantity: 2 }],
+      })
+    ).rejects.toThrow('tidak ditemukan atau sudah dihapus');
   });
 });
 
