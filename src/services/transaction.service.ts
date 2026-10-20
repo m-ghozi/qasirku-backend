@@ -1,5 +1,135 @@
 import { prisma } from '../lib/prisma';
 
+// ── Kalkulasi pesanan (dipakai createTransaction & payOpenBill) ──────────────
+// Kedua jalur harus menghasilkan angka yang sama persis, jadi perhitungannya
+// disatukan di sini: harga & HPP selalu diambil dari DB, diskon divalidasi, dan
+// klien tidak pernah menentukan nilai finansial sendiri.
+
+type CalculatedItem = {
+  productId: number;
+  quantity: number;
+  price: number;
+  hpp: number;
+  discountType: string | null;
+  discountValue: number;
+  discountAmount: number;
+  totalPrice: number;
+  profit: number;
+  notes: string | null;
+};
+
+async function loadProductsForItems(tx: any, items: any[]) {
+  // Ambil semua produk sekaligus (1 query, bukan N queries)
+  const productIds: number[] = items.map((i: any) => Number(i.productId));
+  const products = await tx.product.findMany({
+    where: { id: { in: productIds }, isDeleted: false },
+  });
+
+  const productMap = new Map<number, any>();
+  for (const product of products as any[]) {
+    productMap.set(Number(product.id), product);
+  }
+
+  // Validasi semua produk ditemukan
+  for (const item of items) {
+    if (!productMap.has(Number(item.productId))) {
+      throw new Error(`Produk ID ${item.productId} tidak ditemukan atau sudah dihapus`);
+    }
+  }
+
+  return productMap;
+}
+
+function calculateOrder(
+  productMap: Map<number, any>,
+  items: any[],
+  discountTypeInput: string | null | undefined,
+  discountValueInput: unknown,
+) {
+  const calculatedItems: CalculatedItem[] = items.map((item: any) => {
+    const product = productMap.get(Number(item.productId))!;
+    const qty = Number(item.quantity);
+    // Kuantitas wajib bilangan bulat > 0. Nilai negatif akan melewati cek stok
+    // (stok < qty) dan membuat decrement justru menambah stok, sekaligus
+    // menghasilkan total transaksi negatif.
+    if (!Number.isInteger(qty) || qty <= 0) {
+      throw new Error(`Jumlah item "${product.name}" harus bilangan bulat lebih dari 0`);
+    }
+    const price = Number(product.price);
+    const hpp = Number(product.hpp);
+
+    const discountType: string | null = item.discountType ?? null;
+    const discountValue = Number(item.discountValue ?? 0);
+
+    const grossTotal = price * qty;  // ← hitung gross dulu
+    let discountAmount = 0;
+
+    if (discountType === 'percentage') {
+      if (discountValue < 0 || discountValue > 100) {
+        throw new Error(`Diskon persentase item "${product.name}" harus antara 0–100`);
+      }
+      // Percentage: hitung dari grossTotal (ekuivalen dengan per-unit × qty)
+      discountAmount = (grossTotal * discountValue) / 100;
+    } else if (discountType === 'nominal') {
+      if (discountValue < 0 || discountValue > grossTotal) {
+        throw new Error(`Diskon nominal item "${product.name}" tidak valid`);
+      }
+      // Nominal: nilai flat dari total, bukan per-unit
+      discountAmount = discountValue;
+    }
+
+    const totalPrice = grossTotal - discountAmount;
+    const profit = totalPrice - hpp * qty;  // ← tidak pakai effectivePrice lagi
+
+    return {
+      productId: product.id,
+      quantity: qty,
+      price,
+      hpp,
+      discountType,
+      discountValue,
+      discountAmount: parseFloat(discountAmount.toFixed(2)),
+      totalPrice: parseFloat(totalPrice.toFixed(2)),
+      profit: parseFloat(profit.toFixed(2)),
+      notes: item.notes ?? null,
+    };
+  });
+
+  // ── Hitung subtotal, diskon transaksi, total, profit ──────────────────────
+
+  const subtotal = calculatedItems.reduce((acc, i) => acc + i.totalPrice, 0);
+
+  // Diskon level transaksi (opsional)
+  const discountType: string | null = discountTypeInput ?? null;
+  const discountValue = Number(discountValueInput ?? 0);
+  let discountAmount = 0;
+
+  if (discountType === 'percentage') {
+    if (discountValue < 0 || discountValue > 100) {
+      throw new Error('Diskon persentase transaksi harus antara 0–100');
+    }
+    discountAmount = (subtotal * discountValue) / 100;
+  } else if (discountType === 'nominal') {
+    if (discountValue < 0 || discountValue > subtotal) {
+      throw new Error('Diskon nominal transaksi tidak valid');
+    }
+    discountAmount = discountValue;
+  }
+
+  const total = subtotal - discountAmount;
+  const totalProfit = calculatedItems.reduce((acc, i) => acc + i.profit, 0) - discountAmount;
+
+  return {
+    calculatedItems,
+    subtotal,
+    discountType,
+    discountValue,
+    discountAmount,
+    total,
+    totalProfit,
+  };
+}
+
 export const transactionService = {
   // 1. Ambil semua riwayat transaksi (Untuk Laporan)
   getAllTransactions: async () => {
@@ -50,20 +180,7 @@ export const transactionService = {
         throw new Error('Keranjang belanja kosong');
       }
 
-      // Ambil semua produk sekaligus (1 query, bukan N queries)
-      const productIds: number[] = data.items.map((i: any) => Number(i.productId));
-      const products = await tx.product.findMany({
-        where: { id: { in: productIds }, isDeleted: false },
-      });
-
-      const productMap = new Map(products.map((p) => [p.id, p]));
-
-      // Validasi semua produk ditemukan
-      for (const item of data.items) {
-        if (!productMap.has(Number(item.productId))) {
-          throw new Error(`Produk ID ${item.productId} tidak ditemukan atau sudah dihapus`);
-        }
-      }
+      const productMap = await loadProductsForItems(tx, data.items);
 
       // Validasi stok jika transaksi langsung completed
       if (txStatus === 'completed') {
@@ -77,95 +194,16 @@ export const transactionService = {
         }
       }
 
-      // ── Hitung ulang nilai finansial di server ───────────────────────────────
-
-      type CalculatedItem = {
-        productId: number;
-        quantity: number;
-        price: number;
-        hpp: number;
-        discountType: string | null;
-        discountValue: number;
-        discountAmount: number;
-        totalPrice: number;
-        profit: number;
-        notes: string | null;
-      };
-
-      // ── Hitung ulang nilai finansial di server ───────────────────────────────
-
-      const calculatedItems: CalculatedItem[] = data.items.map((item: any) => {
-        const product = productMap.get(Number(item.productId))!;
-        const qty = Number(item.quantity);
-        // Kuantitas wajib bilangan bulat > 0. Nilai negatif akan melewati cek stok
-        // (stok < qty) dan membuat decrement justru menambah stok, sekaligus
-        // menghasilkan total transaksi negatif.
-        if (!Number.isInteger(qty) || qty <= 0) {
-          throw new Error(`Jumlah item "${product.name}" harus bilangan bulat lebih dari 0`);
-        }
-        const price = Number(product.price);
-        const hpp = Number(product.hpp);
-
-        const discountType: string | null = item.discountType ?? null;
-        const discountValue = Number(item.discountValue ?? 0);
-
-        const grossTotal = price * qty;  // ← hitung gross dulu
-        let discountAmount = 0;
-
-        if (discountType === 'percentage') {
-          if (discountValue < 0 || discountValue > 100) {
-            throw new Error(`Diskon persentase item "${product.name}" harus antara 0–100`);
-          }
-          // Percentage: hitung dari grossTotal (ekuivalen dengan per-unit × qty)
-          discountAmount = (grossTotal * discountValue) / 100;
-        } else if (discountType === 'nominal') {
-          if (discountValue < 0 || discountValue > grossTotal) {
-            throw new Error(`Diskon nominal item "${product.name}" tidak valid`);
-          }
-          // Nominal: nilai flat dari total, bukan per-unit
-          discountAmount = discountValue;
-        }
-
-        const totalPrice = grossTotal - discountAmount;
-        const profit = totalPrice - hpp * qty;  // ← tidak pakai effectivePrice lagi
-
-        return {
-          productId: product.id,
-          quantity: qty,
-          price,
-          hpp,
-          discountType,
-          discountValue,
-          discountAmount: parseFloat(discountAmount.toFixed(2)),
-          totalPrice: parseFloat(totalPrice.toFixed(2)),
-          profit: parseFloat(profit.toFixed(2)),
-          notes: item.notes ?? null,
-        };
-      });
-
-      // ── Hitung subtotal, diskon transaksi, total, profit ────────────────────
-
-      const subtotal = calculatedItems.reduce((acc, i) => acc + i.totalPrice, 0);
-
-      // Diskon level transaksi (opsional)
-      const discountType: string | null = data.discountType ?? null;
-      const discountValue = Number(data.discountValue ?? 0);
-      let discountAmount = 0;
-
-      if (discountType === 'percentage') {
-        if (discountValue < 0 || discountValue > 100) {
-          throw new Error('Diskon persentase transaksi harus antara 0–100');
-        }
-        discountAmount = (subtotal * discountValue) / 100;
-      } else if (discountType === 'nominal') {
-        if (discountValue < 0 || discountValue > subtotal) {
-          throw new Error('Diskon nominal transaksi tidak valid');
-        }
-        discountAmount = discountValue;
-      }
-
-      const total = subtotal - discountAmount;
-      const totalProfit = calculatedItems.reduce((acc, i) => acc + i.profit, 0) - discountAmount;
+      // Hitung ulang nilai finansial di server (harga & HPP dari DB, bukan klien)
+      const {
+        calculatedItems,
+        subtotal,
+        discountType,
+        discountValue,
+        discountAmount,
+        total,
+        totalProfit,
+      } = calculateOrder(productMap, data.items, data.discountType, data.discountValue);
 
       const paymentAmount = Number(data.paymentAmount ?? 0);
 
@@ -252,6 +290,11 @@ export const transactionService = {
   },
 
   // 4. Lunasi Hold Bill (Ubah open → completed)
+  //
+  // `items` opsional: bila dikirim, keranjang final dari kasir dipakai sebagai
+  // sumber kebenaran — harga & HPP dihitung ulang dari DB saat pelunasan, bukan
+  // memakai total yang tersimpan ketika bill dibuat. Ini yang membuat harga yang
+  // dibayar sama dengan yang tampil di keranjang saat bill diedit/dilunasi.
   payOpenBill: async (id: number, paymentData: any) => {
     return await prisma.$transaction(async (tx) => {
       // A. Ambil transaksi beserta itemnya
@@ -264,11 +307,58 @@ export const transactionService = {
       if (transaction.status === 'completed') throw new Error('Transaksi ini sudah lunas');
       if (transaction.status === 'cancelled') throw new Error('Transaksi sudah dibatalkan');
 
-      const total = Number(transaction.total);
+      const incomingItems = paymentData.items;
+      const hasItems = incomingItems !== undefined;
+
+      if (hasItems && (!Array.isArray(incomingItems) || incomingItems.length === 0)) {
+        throw new Error('Keranjang belanja kosong');
+      }
+
+      // Nilai default: item & total tersimpan (perilaku lama untuk klien yang
+      // tidak mengirim keranjang).
+      let orderItems: { productId: number; quantity: number }[] = transaction.items;
+      let subtotal = Number(transaction.subtotal);
+      let discountType: string | null = transaction.discountType;
+      let discountValue = Number(transaction.discountValue);
+      let discountAmount = Number(transaction.discountAmount);
+      let total = Number(transaction.total);
+      let totalProfit = Number(transaction.profit);
+
+      if (hasItems) {
+        const productMap = await loadProductsForItems(tx, incomingItems);
+        const calculated = calculateOrder(
+          productMap,
+          incomingItems,
+          // `undefined` = klien tidak mengirim diskon transaksi → pertahankan
+          // nilai bill. `null` eksplisit tetap berarti diskon dikosongkan.
+          paymentData.discountType === undefined
+            ? transaction.discountType
+            : paymentData.discountType,
+          paymentData.discountValue === undefined
+            ? transaction.discountValue
+            : paymentData.discountValue,
+        );
+
+        orderItems = calculated.calculatedItems;
+        subtotal = calculated.subtotal;
+        discountType = calculated.discountType;
+        discountValue = calculated.discountValue;
+        discountAmount = calculated.discountAmount;
+        total = calculated.total;
+        totalProfit = calculated.totalProfit;
+
+        // Ganti item bill dengan keranjang final. Bila langkah berikutnya gagal,
+        // seluruh $transaction di-rollback sehingga bill lama tetap utuh.
+        await tx.transactionItem.deleteMany({ where: { transactionId: id } });
+        await tx.transactionItem.createMany({
+          data: calculated.calculatedItems.map((item) => ({ transactionId: id, ...item })),
+        });
+      }
+
       const paymentAmount = Number(paymentData.paymentAmount ?? 0);
       const change = parseFloat((paymentAmount - total).toFixed(2));
 
-      // B. Validasi pembayaran
+      // B. Validasi pembayaran terhadap total hasil hitung ulang
       if (paymentAmount < total) {
         throw new Error(
           `Jumlah bayar (${paymentAmount}) kurang dari total transaksi (${total.toFixed(2)})`
@@ -276,7 +366,7 @@ export const transactionService = {
       }
 
       // C. Re-check stok sebelum decrement (stok bisa berubah sejak hold)
-      for (const item of transaction.items) {
+      for (const item of orderItems) {
         const product = await tx.product.findUnique({ where: { id: item.productId } });
         if (!product || product.stock < item.quantity) {
           throw new Error(
@@ -296,11 +386,22 @@ export const transactionService = {
           change: parseFloat(change.toFixed(2)),
           customerId: paymentData.customerId ? Number(paymentData.customerId) : undefined,
           customerName: paymentData.customerName?.trim() || undefined,
+          // Header ikut diselaraskan dengan item hasil hitung ulang.
+          ...(hasItems
+            ? {
+                subtotal: parseFloat(subtotal.toFixed(2)),
+                discountType,
+                discountValue: parseFloat(discountValue.toFixed(2)),
+                discountAmount: parseFloat(discountAmount.toFixed(2)),
+                total: parseFloat(total.toFixed(2)),
+                profit: parseFloat(totalProfit.toFixed(2)),
+              }
+            : {}),
         },
       });
 
       // E. Potong stok
-      for (const item of transaction.items) {
+      for (const item of orderItems) {
         await tx.product.update({
           where: { id: item.productId },
           data: { stock: { decrement: item.quantity } },
