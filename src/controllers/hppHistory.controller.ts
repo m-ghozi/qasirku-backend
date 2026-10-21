@@ -57,8 +57,23 @@ export const hppHistoryController = {
         return;
       }
 
-      // Ambil userId dari token jika ada (hasil verifyToken middleware)
-      const createdBy = (req as any).user?.id;
+      // Pelaku perubahan HPP diambil dari claim `userId` — claim yang sama
+      // dipakai middleware verifyToken dan seluruh controller lain.
+      //
+      // Penting: nama claim harus PERSIS `userId`. JWT tidak punya claim `id`,
+      // jadi membaca `user?.id` selalu menghasilkan undefined dan
+      // membiarkan baris audit tersimpan tanpa pelaku (createdBy = NULL).
+      // Cast `(req as any)` sengaja dihilangkan supaya ketidakcocokan nama claim
+      // ketahuan oleh type-checker, bukan diam-diam merusak jejak audit.
+      const createdBy = req.user?.userId;
+
+      if (!createdBy) {
+        res.status(401).json({
+          success: false,
+          message: 'Sesi tidak valid.',
+        });
+        return;
+      }
 
       const result = await hppHistoryService.updateHppManual(
         parseInt(productId),

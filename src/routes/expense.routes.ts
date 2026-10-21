@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { expenseController } from '../controllers/expense.controller';
-import { verifyToken } from '../middlewares/auth.middleware';
+import { verifyToken, requireRole } from '../middlewares/auth.middleware';
 
 const router = Router();
 
@@ -13,8 +13,8 @@ router.get('/', expenseController.getAll);
 router.get('/summary', expenseController.getSummary);
 
 router.get('/:id', expenseController.getById);
-router.post('/', expenseController.create);
-router.put('/:id', expenseController.update);
-router.delete('/:id', expenseController.delete);
+router.post('/', requireRole('owner'), expenseController.create);
+router.put('/:id', requireRole('owner'), expenseController.update);
+router.delete('/:id', requireRole('owner'), expenseController.delete);
 
 export default router;

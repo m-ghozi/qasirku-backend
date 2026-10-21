@@ -45,3 +45,34 @@ export const verifyToken = (req: Request, res: Response, next: NextFunction): vo
     return;
   }
 };
+
+/**
+ * Otorisasi berbasis role — dipakai SETELAH verifyToken.
+ *
+ * verifyToken hanya membuktikan "siapa" (token valid). Middleware ini yang
+ * membuktikan "boleh tidak" — tanpa itu, setiap akun staff bisa menjalankan
+ * operasi admin (membatalkan transaksi, mengubah stok, master data, dsb).
+ *
+ * Sengaja default-deny: kalau role tidak cocok, 403. Role `owner` implicitly
+ * boleh melakukan semua yang diizinkan untuk `staff`.
+ */
+export const requireRole = (...allowedRoles: string[]) => {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const role = req.user?.role;
+
+    if (!role) {
+      res.status(401).json({ success: false, message: 'Sesi tidak valid.' });
+      return;
+    }
+
+    if (!allowedRoles.includes(role)) {
+      res.status(403).json({
+        success: false,
+        message: 'Akses ditolak. Hanya Owner yang diizinkan.',
+      });
+      return;
+    }
+
+    next();
+  };
+};

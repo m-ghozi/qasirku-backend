@@ -43,12 +43,12 @@ describe('verifyPin', () => {
 
 describe('generateToken', () => {
   beforeEach(() => {
-    process.env.JWT_SECRET = 'test_secret_kasir';
+    process.env.JWT_SECRET = 'test_secret_kasir_integration_2026_abc';
   });
 
   it('token bisa di-verify & membawa payload yang benar', () => {
     const token = generateToken(7, 'owner', ['sales']);
-    const decoded = jwt.verify(token, 'test_secret_kasir') as any;
+    const decoded = jwt.verify(token, 'test_secret_kasir_integration_2026_abc') as any;
     expect(decoded.userId).toBe(7);
     expect(decoded.role).toBe('owner');
     expect(decoded.permissions).toEqual(['sales']);

@@ -1,8 +1,33 @@
 import { Request, Response, NextFunction } from 'express';
 
+// Terima angka dengan berbagai format:
+//   - "5000"          → 5000
+//   - "5000.50"       → 5000.50 (standar)
+//   - "5000,50"       → 5000.50 (Indonesia: koma desimal)
+//   - "5.000,50"      → 5000.50 (Indonesia: period ribuan + koma desimal)
+function toNumber(value: any): number | null {
+    if (value === undefined || value === null || value === '') return null;
+
+    let str = String(value);
+
+    // 1. Jika ada koma, gunakan koma sebagai titik pembatas desimal
+    //    contoh: "5000,50" → "5000.50", "5.000,50" → "5.000.50"
+    if (str.includes(',')) {
+      // Hilangkan period ribuan (titik di antara angka) sebelum mengganti koma jadi titik
+      // "5.000,50" → "5000,50" → "5000.50"
+      str = str.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Format standar, hanya ganti koma jadi titik (jika ada)
+      str = str.replace(',', '.');
+    }
+
+    const n = Number(str);
+    return Number.isFinite(n) ? n : null;
+}
+
 export function isNonNegativeNumber(value: any): boolean {
-    const n = Number(value);
-    return !isNaN(n) && n >= 0;
+    const n = toNumber(value);
+    return n !== null && n >= 0;
 }
 
 function isNonNegativeInteger(value: any): boolean {

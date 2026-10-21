@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { productService } from '../services/product.service';
+import { hppHistoryService } from '../services/hppHistory.service';
 import { parseOptionalId } from '../utils/pagination';
 
 export const productController = {
@@ -88,7 +89,43 @@ export const productController = {
   update: async (req: Request, res: Response): Promise<void> => {
     try {
       const id = parseInt(req.params.id as string);
+
+      // Normalisasi format angka Indonesia (koma desimal, period ribuan)
+      //   "5000"     → 5000
+      //   "5000,50"  → 5000.50
+      //   "5.000,50" → 5000.50
+      //   "5000.50"  → 5000.50
+      const normalize = (v: any) => {
+        if (v === undefined || v === null || v === '') return undefined;
+        let str = String(v);
+        if (str.includes(',')) str = str.replace(/\./g, '').replace(',', '.');
+        else str = str.replace(',', '.');
+        const n = Number(str);
+        return Number.isFinite(n) ? n : undefined;
+      };
+
+      if (req.body.price !== undefined) req.body.price = normalize(req.body.price);
+      if (req.body.hpp !== undefined) req.body.hpp = normalize(req.body.hpp);
+
       const updatedProduct = await productService.updateProduct(id, req.body);
+
+      // Catat perubahan HPP ke riwayat (hpp_histories) bila nilainya berubah.
+      if (req.body.hpp !== undefined && req.body.hpp !== null) {
+        const newHpp = Number(req.body.hpp);
+        if (!isNaN(newHpp)) {
+          try {
+            await hppHistoryService.updateHppManual(
+              id,
+              newHpp,
+              req.user?.userId
+            );
+          } catch (historyErr: any) {
+            // Jangan gagalkan update produk kalau riwayat HPP error.
+            console.error('Gagal mencatat riwayat HPP:', historyErr.message);
+          }
+        }
+      }
+
       res.json({ success: true, message: 'Produk berhasil diubah', data: updatedProduct });
     } catch (error: any) {
       if (error.code === 'P2003') {
