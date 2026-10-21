@@ -83,6 +83,44 @@ export const userController = {
     }
   },
 
+  /**
+   * Ubah role dan/atau permissions secara eksplisit.
+   *
+   * Dipisah dari `update` karena role/permissions adalah keputusan otorisasi,
+   * bukan data profil. Endpoint update biasa sengaja mengabaikan kedua field
+   * itu supaya tidak bisa di-mass-assign dari body.
+   */
+  updateRole: async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (req.user?.role !== 'owner') {
+        res.status(403).json({ success: false, message: 'Akses ditolak.' });
+        return;
+      }
+
+      const id = parseInt(req.params.id as string);
+      const { role, permissions } = req.body;
+
+      if (role !== 'owner' && role !== 'staff') {
+        res.status(400).json({ success: false, message: 'Role tidak valid.' });
+        return;
+      }
+
+      if (permissions !== undefined && !Array.isArray(permissions)) {
+        res.status(400).json({ success: false, message: 'Permissions tidak valid.' });
+        return;
+      }
+
+      const updated = await userService.updateRole(id, role, permissions);
+      res.json({ success: true, message: 'Hak akses berhasil diperbarui', data: updated });
+    } catch (error: any) {
+      if (error.code === 'P2025') {
+        res.status(404).json({ success: false, message: 'User tidak ditemukan' });
+        return;
+      }
+      res.status(500).json({ success: false, message: error.message });
+    }
+  },
+
   delete: async (req: Request, res: Response): Promise<void> => {
     try {
       if (req.user?.role !== 'owner') {
