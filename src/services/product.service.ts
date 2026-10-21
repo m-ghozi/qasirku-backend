@@ -106,14 +106,22 @@ export const productService = {
   },
 
   createProduct: async (data: any) => {
+    const normalize = (v: any) => {
+      if (v === undefined || v === null || v === '') return 0;
+      let str = String(v);
+      if (str.includes(',')) str = str.replace(/\./g, '').replace(',', '.');
+      else str = str.replace(',', '.');
+      return Number(str) || 0;
+    };
+
     return await prisma.product.create({
       data: {
         name: data.name,
         sku: data.sku,
         categoryId: data.categoryId,
         supplierId: data.supplierId ? Number(data.supplierId) : null,
-        price: data.price,
-        hpp: data.hpp,
+        price: normalize(data.price),
+        hpp: normalize(data.hpp),
         stock: data.stock || 0,
         unit: data.unit,
         description: data.description,
@@ -128,6 +136,15 @@ export const productService = {
     const supplierId =
       data.supplierId === undefined ? undefined : data.supplierId ? Number(data.supplierId) : null;
 
+    const normalize = (v: any) => {
+      if (v === undefined || v === null || v === '') return undefined;
+      let str = String(v);
+      if (str.includes(',')) str = str.replace(/\./g, '').replace(',', '.');
+      else str = str.replace(',', '.');
+      const n = Number(str);
+      return Number.isFinite(n) ? n : undefined;
+    };
+
     return await prisma.product.update({
       where: { id },
       data: {
@@ -135,8 +152,8 @@ export const productService = {
         sku: data.sku,
         categoryId: data.categoryId,
         supplierId,
-        price: data.price,
-        hpp: data.hpp,
+        price: normalize(data.price),
+        hpp: normalize(data.hpp),
         stock: data.stock,
         unit: data.unit,
         description: data.description,
