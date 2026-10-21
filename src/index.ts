@@ -49,10 +49,8 @@ app.use(
 app.use(
   cors({
     origin: [
-      'http://localhost:4173',
-      'http://localhost:8080',
       'https://qasir.sayangibu.co.id',
-      'https://www.qasir.sayangibu.co.id', 'https://excitement-unnecessary-philips-scientist.trycloudflare.com','https://reel-edit-democratic-granny.trycloudflare.com'
+      'https://www.qasir.sayangibu.co.id'
     ],
     credentials: true,
   }),
